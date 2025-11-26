@@ -9,7 +9,7 @@ app.use(express.urlencoded({extended: true}));
 const pool = new Pool({
     user: 'postgres',
     host: 'localhost',
-    database: 'base_datos_hospital', // cambiar
+    database: 'hospital_db', // cambiar
     password: 'postgres', // cambiar
     port: 5432,
 });
@@ -17,24 +17,37 @@ const pool = new Pool({
 app.get('/', (req: Request, res: Response) => {
     res.send(`
     <h1>Panel Hospital - ABM</h1>
-    <ul>
-      <li><a href="/paciente">Pacientes</a></li>
-      <li><a href="/medico">Médicos</a></li>
-      <li><a href="/sector">Sectores</a></li>
-      <li><a href="/habitacion">Habitaciones</a></li>
-      <li><a href="/cama">Camas</a></li>
-      <li><a href="/especialidad">Especialidades</a></li>
-      <li><a href="/especializado_en">Médico x Especialidad</a></li>
-      <li><a href="/guardia">Guardias</a></li>
-      <li><a href="/asignacion_guardia">Asignación de guardias</a></li>
-      <li><a href="/periodo_vacaciones">Períodos de vacaciones</a></li>
-      <li><a href="/tiene">Asignar vacaciones a médicos</a></li>
-      <li><a href="/internacion">Internaciones</a></li>
-      <li><a href="/ronda">Rondas</a></li>
-      <li><a href="/incluye">Habitaciones por ronda</a></li>
-      <li><a href="/recorrido">Recorridos</a></li>
-      <li><a href="/comentario_recorrido">Comentarios de recorrido</a></li>
-    </ul>
+    <div>
+        <div>
+            <h3>Gestión General</h3>
+            <ul>
+                <li><a href="/paciente">Pacientes</a></li>
+                <li><a href="/medico">Médicos</a></li>
+                <li><a href="/sector">Sectores</a></li>
+                <li><a href="/habitacion">Habitaciones</a></li>
+                <li><a href="/cama">Camas</a></li>
+                <li><a href="/especialidad">Especialidades</a></li>
+                <li><a href="/especializado_en">Médico x Especialidad</a></li>
+                <li><a href="/guardia">Guardias</a></li>
+                <li><a href="/asignacion_guardia">Asignación de guardias</a></li>
+                <li><a href="/periodo_vacaciones">Períodos de vacaciones</a></li>
+                <li><a href="/tiene">Asignar vacaciones a médicos</a></li>
+                <li><a href="/internacion">Internaciones</a></li>
+                <li><a href="/ronda">Rondas</a></li>
+                <li><a href="/incluye">Habitaciones por ronda</a></li>
+                <li><a href="/recorrido">Recorridos</a></li>
+                <li><a href="/comentario_recorrido">Comentarios de recorrido</a></li>
+            </ul>
+        </div>
+        <div>
+            <h3>Reportes y Consultas</h3>
+            <ul>
+                <li><a href="/reportes/camas-disponibles">Camas Disponibles (Internaciones)</a></li>
+                <li><a href="/reportes/auditoria">Auditoría de Guardias (Admin)</a></li>
+                <li><i>Para "Seguimiento Médico", ir a Internaciones > Ver Seguimiento</i></li>
+            </ul>
+        </div>
+    </div>
   `);
 });
 
@@ -1257,31 +1270,34 @@ app.post('/guardia/borrar/:id_guardia', async (req, res) => {
 app.get('/asignacion_guardia', async (_req, res) => {
     try {
         const result = await pool.query(`
-            SELECT ag.id_guardia,
-                   ag.matricula,
-                   gu.tipo_guardia,
-                   m.apellido,
-                   m.nombre,
-                   e.nombre as nombre_esp
-            FROM asignacion_guardia ag
-                     JOIN medico m ON ag.matricula = m.matricula
-                     JOIN guardia gu ON ag.id_guardia = gu.id_guardia
-                     JOIN especialidad e ON ag.id_especialidad = e.id_especialidad
-            ORDER BY ag.id_guardia, m.apellido
-        `);
+  			SELECT ag.id_guardia,
+         		ag.matricula,
+         		ag.fecha,
+         		gu.tipo_guardia,
+         		m.apellido,
+         		m.nombre,
+         		e.nombre AS nombre_esp
+  			FROM asignacion_guardia ag
+  			JOIN medico       m  ON ag.matricula      = m.matricula
+  			JOIN guardia      gu ON ag.id_guardia     = gu.id_guardia
+  			JOIN especialidad e  ON ag.id_especialidad = e.id_especialidad
+  			ORDER BY ag.fecha, ag.id_guardia, m.apellido
+		`);
 
-        const filas = result.rows.map((f: any) => `
-            <tr>
-                <td>${f.id_guardia} - ${f.tipo_guardia}</td>
-                <td>Dr. <b>${f.apellido}</b>, ${f.nombre} <small>(Mat: ${f.matricula})</small></td>
-                <td>${f.nombre_esp}</td>
-                <td>
-                    <form method="POST" action="/asignacion_guardia/borrar/${f.id_guardia}/${f.matricula}" style="display:inline">
-                        <button type="submit" onclick="return confirm('¿Borrar asignacion de guardia id:${f.id_guardia}  matricula:${f.matricula} ?')">Borrar</button>
-                    </form>
-                </td>
-            </tr>
-        `).join('');
+const filas = result.rows.map((f: any) => `
+  <tr>
+    <td>${f.fecha}</td>
+    <td>${f.id_guardia} - ${f.tipo_guardia}</td>
+    <td>Dr. <b>${f.apellido}</b>, ${f.nombre} <small>(Mat: ${f.matricula})</small></td>
+    <td>${f.nombre_esp}</td>
+    <td>
+      <form method="POST" action="/asignacion_guardia/borrar/${f.id_guardia}/${f.matricula}/${f.fecha}" style="display:inline">
+        <button type="submit" onclick="return confirm('¿Seguro que querés borrar la guardia ${f.id_guardia} del día ${f.fecha} para la matrícula ${f.matricula}?')">Borrar</button>
+      </form>
+    </td>
+  </tr>
+`).join('');
+
 
         res.send(`
             <h1>Gestión de Asignación de Guardias</h1>
@@ -1291,6 +1307,7 @@ app.get('/asignacion_guardia', async (_req, res) => {
                     <th>Guardia</th>
                     <th>Médico</th>
                     <th>Especialidad</th>
+                    <th>Fecha</th>
                     <th>Acciones</th>
                 </tr>
                 ${filas || '<tr><td colspan="4">No hay asignaciones.</td></tr>'}
@@ -1303,65 +1320,65 @@ app.get('/asignacion_guardia', async (_req, res) => {
 
 //NUEVA GUARDIA
 app.get('/asignacion_guardia/nueva', async (_req, res) => {
-    try {
-        res.send(`
+  res.send(`
     <h1>Nueva Asignación de Guardia</h1>
     <form method="POST" action="/asignacion_guardia/nueva">
-        ID Guardia:
-        <input type="text" name="id_guardia" required autofocus><br><br>
-        
-        Matrícula:
-        <input type="text" name="matricula" required><br><br>
-        
-        ID Especialidad:
-        <input type="text" name="id_especialidad" required><br><br>
-        
-        <button type="submit">Guardar Asignación de Guardia</button>
+      ID Guardia:
+      <input type="number" name="id_guardia" required><br><br>
+
+      Matrícula:
+      <input type="number" name="matricula" required><br><br>
+
+      ID Especialidad:
+      <input type="number" name="id_especialidad" required><br><br>
+
+      Fecha:
+      <input type="date" name="fecha" required><br><br>
+
+      <button type="submit">Guardar Asignación de Guardia</button>
     </form>
     <br><a href="/asignacion_guardia">Volver</a>
-`);
-    } catch (err: any) {
-        res.status(500).send(`<pre>${err.message}</pre>`);
-    }
+  `);
 });
 
 //AGREGAR NUEVA ASIGNACION DE GUARDIA
 app.post('/asignacion_guardia/nueva', async (req, res) => {
-    const {id_guardia, matricula, id_especialidad} = req.body;
+  const {id_guardia, matricula, id_especialidad, fecha} = req.body;
 
-    try {
-        await pool.query(
-            `INSERT INTO asignacion_guardia (id_guardia, matricula, id_especialidad)
-             VALUES ($1, $2, $3)`,
-            [id_guardia, matricula, id_especialidad]
-        );
-        res.redirect('/asignacion_guardia');
-    } catch (err: any) {
-        res.status(400).send(`
-            <h1>Error al guardar</h1>
-            <pre>${err.message}</pre>
-            <a href="/asignacion_guardia/nueva">Volver</a>
-        `);
-    }
+  try {
+    await pool.query(
+      `INSERT INTO asignacion_guardia (id_guardia, matricula, id_especialidad, fecha)
+       VALUES ($1, $2, $3, $4)`,
+      [Number(id_guardia), Number(matricula), Number(id_especialidad), fecha]
+    );
+    res.redirect('/asignacion_guardia');
+  } catch (err: any) {
+    res.status(400).send(`
+      <h1>Error al guardar asignación</h1>
+      <pre>${err.message}</pre>
+      <a href="/asignacion_guardia/nueva">Volver</a>
+    `);
+  }
 });
+
 
 //BORRAR asignacion_guardia
-app.post('/asignacion_guardia/borrar/:id_guardia/:matricula', async (req, res) => {
-    const id_guardia = Number(req.params.id_guardia);
-    const matricula = Number(req.params.matricula);
+app.post('/asignacion_guardia/borrar/:id_guardia/:matricula/:fecha', async (req, res) => {
+  const id_guardia = Number(req.params.id_guardia);
+  const matricula  = Number(req.params.matricula);
+  const fecha      = req.params.fecha; // viene como 'YYYY-MM-DD'
 
-    try {
-        await pool.query(
-            'DELETE FROM asignacion_guardia WHERE id_guardia=$1 and matricula=$2',
-            [id_guardia, matricula]
-        );
-
-        res.redirect('/asignacion_guardia');
-
-    } catch (err: any) {
-        res.status(400).send(`<h1>Error</h1><pre>${err.message}</pre><a href="/asignacion_guardia">Volver</a>`);
-    }
+  try {
+    await pool.query(
+      'DELETE FROM asignacion_guardia WHERE id_guardia=$1 AND matricula=$2 AND fecha=$3',
+      [id_guardia, matricula, fecha]
+    );
+    res.redirect('/asignacion_guardia');
+  } catch (err: any) {
+    res.status(400).send(`<h1>Error</h1><pre>${err.message}</pre><a href=" asignacion_guardia">Volver</a>`);
+  }
 });
+
 
 // LISTADO DE INTERNACIONES
 app.get('/internacion', async (_req: Request, res: Response) => {
@@ -2679,6 +2696,175 @@ app.post('/comentario_recorrido/borrar/:id', async (req: Request, res: Response)
       <a href="/comentario_recorrido">Volver</a>
     `);
   }
+});
+
+
+//aca vendrian los reportes
+
+app.get('/reportes/camas-disponibles', async (_req: Request, res: Response) => {
+    try {
+        // 1. Obtener el resumen (Conteo)
+        const resumenResult = await pool.query('SELECT * FROM sp_cantidad_camas_libres_por_sector()');
+        
+        // 2. Obtener el detalle completo
+        const detalleResult = await pool.query('SELECT * FROM sp_detalle_camas_disponibles()');
+
+        // Renderizar tabla resumen
+        const filasResumen = resumenResult.rows.map((r: any) => `
+            <tr>
+                <td><b>${r.sector}</b></td>
+                <td style="text-align:center; font-size: 1.2em;">${r.cantidad_disponible}</td>
+            </tr>
+        `).join('');
+
+        // Renderizar tabla detalle
+        const filasDetalle = detalleResult.rows.map((d: any) => `
+            <tr>
+                <td>${d.nombre_sector}</td>
+                <td>${d.piso}</td>
+                <td>Hab. ${d.num_habitacion}</td>
+                <td>Cama ${d.num_cama}</td>
+                <td>${d.orientacion}</td>
+            </tr>
+        `).join('');
+
+        res.send(`
+            <h1>Disponibilidad de Camas (Área de Internación)</h1>
+            <a href="/">Volver al Inicio</a>
+            
+            <h3>Resumen por Sector</h3>
+            <table border="1" cellpadding="5" style="border-collapse: collapse; width: 50%;">
+                <tr style="background-color: #f2f2f2;"><th>Sector</th><th>Cantidad Libre</th></tr>
+                ${filasResumen || '<tr><td colspan="2">No hay camas libres.</td></tr>'}
+            </table>
+
+            <h3>Detalle de Ubicación</h3>
+            <table border="1" cellpadding="5" style="border-collapse: collapse; width: 80%;">
+                <tr style="background-color: #f2f2f2;">
+                    <th>Sector</th><th>Piso</th><th>Habitación</th><th>Cama</th><th>Orientación</th>
+                </tr>
+                ${filasDetalle || '<tr><td colspan="5">No hay camas libres.</td></tr>'}
+            </table>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+app.get('/internacion/seguimiento/:id', async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    try {
+        // 1. Datos básicos de la internación y paciente
+        const encabezado = await pool.query(`
+            SELECT i.id_internacion, p.apellido, p.nombre, p.dni 
+            FROM internacion i 
+            JOIN paciente p ON i.dni = p.dni 
+            WHERE i.id_internacion = $1`, [id]);
+            
+        if (encabezado.rowCount === 0) return res.send('Internación no encontrada');
+        const pac = encabezado.rows[0];
+
+        // 2. Llamada al Stored Procedure
+        const comentariosResult = await pool.query('SELECT * FROM sp_comentarios_internacion($1)', [id]);
+
+        const timeline = comentariosResult.rows.map((c: any) => `
+            <div style="border: 1px solid #ccc; margin-bottom: 10px; padding: 10px; border-radius: 5px;">
+                <div style="color: #555; font-size: 0.9em;">
+                    <strong>Fecha:</strong> ${new Date(c.fecha).toLocaleDateString()} | 
+                    <strong>Dr/a:</strong> ${c.apellido_medico}, ${c.nombre_medico} (Mat. ${c.matricula})
+                </div>
+                <p style="margin-top: 5px; font-size: 1.1em;">${c.texto}</p>
+            </div>
+        `).join('');
+
+        res.send(`
+            <h1>Seguimiento Médico</h1>
+            <h3>Paciente: ${pac.apellido}, ${pac.nombre} (DNI: ${pac.dni})</h3>
+            <p>Internación N°: ${pac.id_internacion}</p>
+            <hr>
+            
+            <div style="max-width: 800px;">
+                ${timeline || '<p><i>No hay comentarios registrados para esta internación.</i></p>'}
+            </div>
+            
+            <br>
+            <a href="/comentario_recorrido/nuevo">Agregar Nuevo Comentario</a> | 
+            <a href="/internacion">Volver a Internaciones</a>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+app.get('/reportes/auditoria', async (_req: Request, res: Response) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                id_auditoria,
+                accion,
+                usuario,
+                to_char(fecha_auditoria, 'DD/MM/YYYY HH24:MI:SS') as fecha,
+                id_guardia,
+                t_guardia,
+                matricula,
+                nombre_medico,
+                apellido_medico,
+                especialidad
+            FROM aud_asignacion_guardia
+            ORDER BY fecha_auditoria DESC
+        `);
+
+        // Función auxiliar para formatear la acción
+        const getEtiquetaAccion = (char: string) => {
+            switch(char) {
+                case 'I': return '<span style="color:green; font-weight:bold;">ALTA (INSERT)</span>';
+                case 'U': return '<span style="color:orange; font-weight:bold;">MODIFICACIÓN (UPDATE)</span>';
+                case 'D': return '<span style="color:red; font-weight:bold;">BAJA (DELETE)</span>';
+                default: return char;
+            }
+        };
+
+        const filas = result.rows.map((r: any) => `
+            <tr>
+                <td>${r.fecha}</td>
+                <td>${r.usuario}</td>
+                <td>${getEtiquetaAccion(r.accion)}</td>
+                <td>
+                    <strong>${r.apellido_medico}, ${r.nombre_medico}</strong><br>
+                    <small>Mat: ${r.matricula} - DNI: ${r.dni || 'N/D'}</small>
+                </td>
+                <td>
+                    ID: ${r.id_guardia} <br> 
+                    Tipo: <b>${r.t_guardia}</b>
+                </td>
+                <td>${r.especialidad}</td>
+            </tr>
+        `).join('');
+
+        res.send(`
+            <h1>Auditoría de Asignación de Guardias</h1>
+            <p>Historial detallado de cambios.</p>
+            <a href="/">Volver al Inicio</a><br><br>
+            
+            <table border="1" cellpadding="8" style="border-collapse: collapse; width: 100%; font-family: sans-serif;">
+                <thead style="background-color: #333; color: white;">
+                    <tr>
+                        <th>Fecha y Hora</th>
+                        <th>Usuario Sistema</th>
+                        <th>Acción Realizada</th>
+                        <th>Médico Afectado</th>
+                        <th>Guardia</th>
+                        <th>Especialidad</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filas || '<tr><td colspan="6" style="text-align:center; padding: 20px;">No hay registros de auditoría.</td></tr>'}
+                </tbody>
+            </table>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<h1>Error</h1><pre>${err.message}</pre><a href="/">Volver</a>`);
+    }
 });
 
 app.listen(PORT, () => {
