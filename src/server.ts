@@ -14,41 +14,92 @@ const pool = new Pool({
     port: 5432,
 });
 
-app.get('/', (req: Request, res: Response) => {
-    res.send(`
-    <h1>Panel Hospital - ABM</h1>
-    <div>
-        <div>
-            <h3>Gestión General</h3>
-            <ul>
-                <li><a href="/paciente">Pacientes</a></li>
-                <li><a href="/medico">Médicos</a></li>
-                <li><a href="/sector">Sectores</a></li>
-                <li><a href="/habitacion">Habitaciones</a></li>
-                <li><a href="/cama">Camas</a></li>
-                <li><a href="/especialidad">Especialidades</a></li>
-                <li><a href="/especializado_en">Médico x Especialidad</a></li>
-                <li><a href="/guardia">Guardias</a></li>
-                <li><a href="/asignacion_guardia">Asignación de guardias</a></li>
-                <li><a href="/periodo_vacaciones">Períodos de vacaciones</a></li>
-                <li><a href="/tiene">Asignar vacaciones a médicos</a></li>
-                <li><a href="/internacion">Internaciones</a></li>
-                <li><a href="/ronda">Rondas</a></li>
-                <li><a href="/incluye">Habitaciones por ronda</a></li>
-                <li><a href="/recorrido">Recorridos</a></li>
-                <li><a href="/comentario_recorrido">Comentarios de recorrido</a></li>
-            </ul>
+app.get('/', async (req: Request, res: Response) => {
+    try {
+        const stats = await pool.query(`
+            SELECT 
+                (SELECT COUNT(*) FROM paciente) as total_pacientes,
+                (SELECT COUNT(*) FROM medico) as total_medicos,
+                (SELECT COUNT(*) FROM internacion WHERE fecha_fin IS NULL) as internaciones_activas,
+                (SELECT COUNT(*) FROM cama WHERE estado = 'LIBRE') as camas_libres,
+                (SELECT COUNT(*) FROM cama WHERE estado = 'OCUPADA') as camas_ocupadas
+        `);
+
+        const s = stats.rows[0];
+
+        res.send(`
+        <style>
+            .dashboard-card { background: #f8f9fa; padding: 10px 15px; border-radius: 5px; border: 1px solid #ddd; text-align: center; }
+            .dashboard-container { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+            h2 { margin: 5px 0; font-size: 1.5em; color: #007bff; }
+        </style>
+
+        <h1>Panel Hospital - ABM</h1>
+        
+        <div class="dashboard-container">
+            <div class="dashboard-card">
+                <h2>${s.total_pacientes}</h2>
+                <span>Pacientes</span>
+            </div>
+            <div class="dashboard-card">
+                <h2>${s.total_medicos}</h2>
+                <span>Médicos</span>
+            </div>
+            <div class="dashboard-card">
+                <h2 style="color: #dc3545;">${s.internaciones_activas}</h2>
+                <span>Internaciones Activas</span>
+            </div>
+            <div class="dashboard-card">
+                <h2 style="color: #28a745;">${s.camas_libres}</h2>
+                <span>Camas Libres</span>
+            </div>
         </div>
+        <hr>
+
         <div>
-            <h3>Reportes y Consultas</h3>
-            <ul>
-                <li><a href="/reportes/camas-disponibles">Camas Disponibles (Internaciones)</a></li>
-                <li><a href="/reportes/auditoria">Auditoría de Guardias (Admin)</a></li>
-                <li><i>Para "Seguimiento Médico", ir a Internaciones > Ver Seguimiento</i></li>
-            </ul>
+            <div>
+                <h3>Gestión General</h3>
+                <ul>
+                    <li><a href="/paciente">Pacientes</a></li>
+                    <li><a href="/medico">Médicos</a></li>
+                    <li><a href="/sector">Sectores</a></li>
+                    <li><a href="/habitacion">Habitaciones</a></li>
+                    <li><a href="/cama">Camas</a></li>
+                    <li><a href="/especialidad">Especialidades</a></li>
+                    <li><a href="/especializado_en">Médico x Especialidad</a></li>
+                    <li><a href="/guardia">Guardias</a></li>
+                    <li><a href="/asignacion_guardia">Asignación de guardias</a></li>
+                    <li><a href="/periodo_vacaciones">Períodos de vacaciones</a></li>
+                    <li><a href="/tiene">Asignar vacaciones a médicos</a></li>
+                    <li><a href="/internacion">Internaciones</a></li>
+                    <li><a href="/ronda">Rondas</a></li>
+                    <li><a href="/incluye">Habitaciones por ronda</a></li>
+                    <li><a href="/recorrido">Recorridos</a></li>
+                    <li><a href="/comentario_recorrido">Comentarios de recorrido</a></li>
+                    <li><a href="/corresponde">Corresponde</a></li>
+                </ul>
+            </div>
+            <div>
+                <h3>Reportes y Consultas</h3>
+                <ul>
+                    <li><a href="/reportes/camas-disponibles">Camas Disponibles (Internaciones)</a></li>
+                    <li><a href="/reportes/auditoria">Auditoría de Guardias (Admin)</a></li>
+                    <li><a href="/reportes/internados">Reportes de internados</a></li>
+                    <li><a href="/reportes/liquidacion">Reportes de liquidación</a></li>
+                    <li><i>Para "Seguimiento Médico", ir a Internaciones > Ver Seguimiento</i></li>
+                </ul>
+            </div>
+            <div>
+                <h3>Gestión dual Médico y Paciente</h3>
+                <ul>
+                    <li><a href="/internar_medico">Internar Médico (Transacción)</a></li>
+                </ul>       
+            </div>
         </div>
-    </div>
-  `);
+      `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>Error al cargar el panel: ${err.message}</pre>`);
+    }
 });
 
 //PACIENTE
@@ -1284,7 +1335,7 @@ app.get('/asignacion_guardia', async (_req, res) => {
   			ORDER BY ag.fecha, ag.id_guardia, m.apellido
 		`);
 
-const filas = result.rows.map((f: any) => `
+        const filas = result.rows.map((f: any) => `
   <tr>
     <td>${f.fecha}</td>
     <td>${f.id_guardia} - ${f.tipo_guardia}</td>
@@ -1320,7 +1371,7 @@ const filas = result.rows.map((f: any) => `
 
 //NUEVA GUARDIA
 app.get('/asignacion_guardia/nueva', async (_req, res) => {
-  res.send(`
+    res.send(`
     <h1>Nueva Asignación de Guardia</h1>
     <form method="POST" action="/asignacion_guardia/nueva">
       ID Guardia:
@@ -1343,48 +1394,48 @@ app.get('/asignacion_guardia/nueva', async (_req, res) => {
 
 //AGREGAR NUEVA ASIGNACION DE GUARDIA
 app.post('/asignacion_guardia/nueva', async (req, res) => {
-  const {id_guardia, matricula, id_especialidad, fecha} = req.body;
+    const {id_guardia, matricula, id_especialidad, fecha} = req.body;
 
-  try {
-    await pool.query(
-      `INSERT INTO asignacion_guardia (id_guardia, matricula, id_especialidad, fecha)
+    try {
+        await pool.query(
+            `INSERT INTO asignacion_guardia (id_guardia, matricula, id_especialidad, fecha)
        VALUES ($1, $2, $3, $4)`,
-      [Number(id_guardia), Number(matricula), Number(id_especialidad), fecha]
-    );
-    res.redirect('/asignacion_guardia');
-  } catch (err: any) {
-    res.status(400).send(`
+            [Number(id_guardia), Number(matricula), Number(id_especialidad), fecha]
+        );
+        res.redirect('/asignacion_guardia');
+    } catch (err: any) {
+        res.status(400).send(`
       <h1>Error al guardar asignación</h1>
       <pre>${err.message}</pre>
       <a href="/asignacion_guardia/nueva">Volver</a>
     `);
-  }
+    }
 });
 
 
 //BORRAR asignacion_guardia
 app.post('/asignacion_guardia/borrar/:id_guardia/:matricula/:fecha', async (req, res) => {
-  const id_guardia = Number(req.params.id_guardia);
-  const matricula  = Number(req.params.matricula);
-  const fecha      = req.params.fecha; // viene como 'YYYY-MM-DD'
+    const id_guardia = Number(req.params.id_guardia);
+    const matricula  = Number(req.params.matricula);
+    const fecha      = req.params.fecha; // viene como 'YYYY-MM-DD'
 
-  try {
-    await pool.query(
-      'DELETE FROM asignacion_guardia WHERE id_guardia=$1 AND matricula=$2 AND fecha=$3',
-      [id_guardia, matricula, fecha]
-    );
-    res.redirect('/asignacion_guardia');
-  } catch (err: any) {
-    res.status(400).send(`<h1>Error</h1><pre>${err.message}</pre><a href=" asignacion_guardia">Volver</a>`);
-  }
+    try {
+        await pool.query(
+            'DELETE FROM asignacion_guardia WHERE id_guardia=$1 AND matricula=$2 AND fecha=$3',
+            [id_guardia, matricula, fecha]
+        );
+        res.redirect('/asignacion_guardia');
+    } catch (err: any) {
+        res.status(400).send(`<h1>Error</h1><pre>${err.message}</pre><a href=" asignacion_guardia">Volver</a>`);
+    }
 });
 
 
 // LISTADO DE INTERNACIONES
 app.get('/internacion', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `
+    try {
+        const result = await pool.query(
+            `
       SELECT 
         i.id_internacion,
         i.fecha_inicio,
@@ -1400,9 +1451,9 @@ app.get('/internacion', async (_req: Request, res: Response) => {
       JOIN paciente p ON p.dni = i.dni
       ORDER BY i.id_internacion;
       `
-    );
+        );
 
-    const filas = result.rows.map((i: any) => `
+        const filas = result.rows.map((i: any) => `
       <tr>
         <td>${i.id_internacion}</td>
         <td>${i.fecha_inicio}</td>
@@ -1412,6 +1463,8 @@ app.get('/internacion', async (_req: Request, res: Response) => {
         <td>
           <a href="/internacion/editar/${i.id_internacion}">Editar</a>
           |
+          <a href="/internacion/seguimiento/${i.id_internacion}">Ver seguimiento</a>
+          |
           <form method="POST" action="/internacion/borrar/${i.id_internacion}" style="display:inline">
             <button type="submit" onclick="return confirm('¿Borrar internación?')">Borrar</button>
           </form>
@@ -1419,7 +1472,7 @@ app.get('/internacion', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Internaciones</h1>
       <a href="/internacion/nueva">➕ Nueva internación</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -1434,31 +1487,31 @@ app.get('/internacion', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="6">Sin internaciones.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // FORMULARIO NUEVA INTERNACION
 app.get('/internacion/nueva', async (_req: Request, res: Response) => {
-  try {
-    const medicos = await pool.query(
-      'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
-    );
-    const pacientes = await pool.query(
-      'SELECT dni, apellido, nombre FROM paciente ORDER BY apellido, nombre'
-    );
+    try {
+        const medicos = await pool.query(
+            'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
+        );
+        const pacientes = await pool.query(
+            'SELECT dni, apellido, nombre FROM paciente ORDER BY apellido, nombre'
+        );
 
-    const opcionesMedico = medicos.rows.map((m: any) =>
-      `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
-    ).join('');
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
+        ).join('');
 
-    const opcionesPaciente = pacientes.rows.map((p: any) =>
-      `<option value="${p.dni}">${p.dni} - ${p.apellido}, ${p.nombre}</option>`
-    ).join('');
+        const opcionesPaciente = pacientes.rows.map((p: any) =>
+            `<option value="${p.dni}">${p.dni} - ${p.apellido}, ${p.nombre}</option>`
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Nueva internación</h1>
       <form method="POST" action="/internacion/nueva">
         <label>Fecha inicio:</label><br>
@@ -1483,86 +1536,86 @@ app.get('/internacion/nueva', async (_req: Request, res: Response) => {
       </form>
       <br><a href="/internacion">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // ALTA INTERNACION
 app.post('/internacion/nueva', async (req: Request, res: Response) => {
-  const { fecha_inicio, fecha_fin, matricula, dni } = req.body;
-  try {
-    const fechaFinValue = fecha_fin && fecha_fin !== '' ? fecha_fin : null;
+    const { fecha_inicio, fecha_fin, matricula, dni } = req.body;
+    try {
+        const fechaFinValue = fecha_fin && fecha_fin !== '' ? fecha_fin : null;
 
-    await pool.query(
-      `
+        await pool.query(
+            `
       INSERT INTO internacion (fecha_inicio, fecha_fin, matricula, dni)
       VALUES ($1, $2, $3, $4)
       `,
-      [fecha_inicio, fechaFinValue, Number(matricula), Number(dni)]
-    );
+            [fecha_inicio, fechaFinValue, Number(matricula), Number(dni)]
+        );
 
-    res.redirect('/internacion');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+        res.redirect('/internacion');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al guardar internación</h1>
       <pre>${err.message}</pre>
       <a href="/internacion/nueva">Volver</a>
     `);
-  }
+    }
 });
 
 // FORMULARIO EDITAR INTERNACION
 app.get('/internacion/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    // Traigo la internación
-    const intResult = await pool.query(
-      `
+    const id = Number(req.params.id);
+    try {
+        // Traigo la internación
+        const intResult = await pool.query(
+            `
       SELECT id_internacion, fecha_inicio, fecha_fin, matricula, dni
       FROM internacion
       WHERE id_internacion = $1
       `,
-      [id]
-    );
+            [id]
+        );
 
-    if (intResult.rowCount === 0) {
-      return res.status(404).send('<h1>Internación no encontrada</h1><a href="/internacion">Volver</a>');
-    }
+        if (intResult.rowCount === 0) {
+            return res.status(404).send('<h1>Internación no encontrada</h1><a href="/internacion">Volver</a>');
+        }
 
-    const i = intResult.rows[0];
+        const i = intResult.rows[0];
 
-    const fechaInicio = i.fecha_inicio instanceof Date
-      ? i.fecha_inicio.toISOString().slice(0, 10)
-      : i.fecha_inicio;
+        const fechaInicio = i.fecha_inicio instanceof Date
+            ? i.fecha_inicio.toISOString().slice(0, 10)
+            : i.fecha_inicio;
 
-    const fechaFin = i.fecha_fin instanceof Date
-      ? i.fecha_fin.toISOString().slice(0, 10)
-      : (i.fecha_fin || '');
+        const fechaFin = i.fecha_fin instanceof Date
+            ? i.fecha_fin.toISOString().slice(0, 10)
+            : (i.fecha_fin || '');
 
-    // combos médico y paciente
-    const medicos = await pool.query(
-      'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
-    );
-    const pacientes = await pool.query(
-      'SELECT dni, apellido, nombre FROM paciente ORDER BY apellido, nombre'
-    );
+        // combos médico y paciente
+        const medicos = await pool.query(
+            'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
+        );
+        const pacientes = await pool.query(
+            'SELECT dni, apellido, nombre FROM paciente ORDER BY apellido, nombre'
+        );
 
-    const opcionesMedico = medicos.rows.map((m: any) =>
-      `<option value="${m.matricula}" ${m.matricula === i.matricula ? 'selected' : ''}>
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}" ${m.matricula === i.matricula ? 'selected' : ''}>
         ${m.matricula} - ${m.apellido}, ${m.nombre}
       </option>`
-    ).join('');
+        ).join('');
 
-    const opcionesPaciente = pacientes.rows.map((p: any) =>
-      `<option value="${p.dni}" ${p.dni === i.dni ? 'selected' : ''}>
+        const opcionesPaciente = pacientes.rows.map((p: any) =>
+            `<option value="${p.dni}" ${p.dni === i.dni ? 'selected' : ''}>
         ${p.dni} - ${p.apellido}, ${p.nombre}
       </option>`
-    ).join('');
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Editar internación ${i.id_internacion}</h1>
       <form method="POST" action="/internacion/editar/${i.id_internacion}">
         <label>ID:</label><br>
@@ -1588,21 +1641,21 @@ app.get('/internacion/editar/:id', async (req: Request, res: Response) => {
       </form>
       <br><a href="/internacion">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // GUARDAR EDICION INTERNACION
 app.post('/internacion/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const { fecha_inicio, fecha_fin, matricula, dni } = req.body;
-  try {
-    const fechaFinValue = fecha_fin && fecha_fin !== '' ? fecha_fin : null;
+    const id = Number(req.params.id);
+    const { fecha_inicio, fecha_fin, matricula, dni } = req.body;
+    try {
+        const fechaFinValue = fecha_fin && fecha_fin !== '' ? fecha_fin : null;
 
-    await pool.query(
-      `
+        await pool.query(
+            `
       UPDATE internacion
       SET fecha_inicio = $1,
           fecha_fin    = $2,
@@ -1610,47 +1663,47 @@ app.post('/internacion/editar/:id', async (req: Request, res: Response) => {
           dni          = $4
       WHERE id_internacion = $5
       `,
-      [fecha_inicio, fechaFinValue, Number(matricula), Number(dni), id]
-    );
+            [fecha_inicio, fechaFinValue, Number(matricula), Number(dni), id]
+        );
 
-    res.redirect('/internacion');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+        res.redirect('/internacion');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al actualizar internación</h1>
       <pre>${err.message}</pre>
       <a href="/internacion">Volver</a>
     `);
-  }
+    }
 });
 
 // BORRAR INTERNACION
 app.post('/internacion/borrar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    await pool.query('DELETE FROM internacion WHERE id_internacion = $1', [id]);
-    res.redirect('/internacion');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    try {
+        await pool.query('DELETE FROM internacion WHERE id_internacion = $1', [id]);
+        res.redirect('/internacion');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al borrar internación</h1>
       <p>Probablemente haya registros relacionados (corresponde, comentario_recorrido, etc.).</p>
       <pre>${err.message}</pre>
       <a href="/internacion">Volver</a>
     `);
-  }
+    }
 });
 
 /* ========== PERIODO_VACACIONES ========== */
 
 // Listado
 app.get('/periodo_vacaciones', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      'SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin FROM periodo_vacaciones ORDER BY id_periodo_vacaciones'
-    );
+    try {
+        const result = await pool.query(
+            'SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin FROM periodo_vacaciones ORDER BY id_periodo_vacaciones'
+        );
 
-    const filas = result.rows.map((v: any) => `
+        const filas = result.rows.map((v: any) => `
       <tr>
         <td>${v.id_periodo_vacaciones}</td>
         <td>${v.fecha_inicio}</td>
@@ -1665,7 +1718,7 @@ app.get('/periodo_vacaciones', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Períodos de vacaciones</h1>
       <a href="/periodo_vacaciones/nuevo">➕ Nuevo período</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -1675,15 +1728,15 @@ app.get('/periodo_vacaciones', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="4">Sin períodos cargados.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // Form nuevo
 app.get('/periodo_vacaciones/nuevo', (_req: Request, res: Response) => {
-  res.send(`
+    res.send(`
     <h1>Nuevo período de vacaciones</h1>
     <form method="POST" action="/periodo_vacaciones/nuevo">
       <label>Fecha inicio:</label><br>
@@ -1698,50 +1751,50 @@ app.get('/periodo_vacaciones/nuevo', (_req: Request, res: Response) => {
 
 // Alta
 app.post('/periodo_vacaciones/nuevo', async (req: Request, res: Response) => {
-  const { fecha_inicio, fecha_fin } = req.body;
-  try {
-    await pool.query(
-      `INSERT INTO periodo_vacaciones (fecha_inicio, fecha_fin)
+    const { fecha_inicio, fecha_fin } = req.body;
+    try {
+        await pool.query(
+            `INSERT INTO periodo_vacaciones (fecha_inicio, fecha_fin)
        VALUES ($1, $2)`,
-      [fecha_inicio, fecha_fin]
-    );
-    res.redirect('/periodo_vacaciones');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [fecha_inicio, fecha_fin]
+        );
+        res.redirect('/periodo_vacaciones');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al guardar período</h1>
       <pre>${err.message}</pre>
       <a href="/periodo_vacaciones/nuevo">Volver</a>
     `);
-  }
+    }
 });
 
 // Form editar
 app.get('/periodo_vacaciones/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    const result = await pool.query(
-      `SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin
+    const id = Number(req.params.id);
+    try {
+        const result = await pool.query(
+            `SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin
        FROM periodo_vacaciones
        WHERE id_periodo_vacaciones = $1`,
-      [id]
-    );
+            [id]
+        );
 
-    if (result.rowCount === 0) {
-      return res.status(404).send('<h1>Período no encontrado</h1><a href="/periodo_vacaciones">Volver</a>');
-    }
+        if (result.rowCount === 0) {
+            return res.status(404).send('<h1>Período no encontrado</h1><a href="/periodo_vacaciones">Volver</a>');
+        }
 
-    const v = result.rows[0];
+        const v = result.rows[0];
 
-    const fechaInicio = v.fecha_inicio instanceof Date
-      ? v.fecha_inicio.toISOString().slice(0, 10)
-      : v.fecha_inicio;
+        const fechaInicio = v.fecha_inicio instanceof Date
+            ? v.fecha_inicio.toISOString().slice(0, 10)
+            : v.fecha_inicio;
 
-    const fechaFin = v.fecha_fin instanceof Date
-      ? v.fecha_fin.toISOString().slice(0, 10)
-      : v.fecha_fin;
+        const fechaFin = v.fecha_fin instanceof Date
+            ? v.fecha_fin.toISOString().slice(0, 10)
+            : v.fecha_fin;
 
-    res.send(`
+        res.send(`
       <h1>Editar período ${v.id_periodo_vacaciones}</h1>
       <form method="POST" action="/periodo_vacaciones/editar/${v.id_periodo_vacaciones}">
         ID: <input type="number" value="${v.id_periodo_vacaciones}" disabled><br><br>
@@ -1753,61 +1806,61 @@ app.get('/periodo_vacaciones/editar/:id', async (req: Request, res: Response) =>
       </form>
       <br><a href="/periodo_vacaciones">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // Guardar edición
 app.post('/periodo_vacaciones/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const { fecha_inicio, fecha_fin } = req.body;
-  try {
-    await pool.query(
-      `UPDATE periodo_vacaciones
+    const id = Number(req.params.id);
+    const { fecha_inicio, fecha_fin } = req.body;
+    try {
+        await pool.query(
+            `UPDATE periodo_vacaciones
        SET fecha_inicio = $1, fecha_fin = $2
        WHERE id_periodo_vacaciones = $3`,
-      [fecha_inicio, fecha_fin, id]
-    );
-    res.redirect('/periodo_vacaciones');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [fecha_inicio, fecha_fin, id]
+        );
+        res.redirect('/periodo_vacaciones');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al actualizar período</h1>
       <pre>${err.message}</pre>
       <a href="/periodo_vacaciones">Volver</a>
     `);
-  }
+    }
 });
 
 // Borrar
 app.post('/periodo_vacaciones/borrar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    await pool.query(
-      'DELETE FROM periodo_vacaciones WHERE id_periodo_vacaciones = $1',
-      [id]
-    );
-    res.redirect('/periodo_vacaciones');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    try {
+        await pool.query(
+            'DELETE FROM periodo_vacaciones WHERE id_periodo_vacaciones = $1',
+            [id]
+        );
+        res.redirect('/periodo_vacaciones');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al borrar período</h1>
       <p>Probablemente haya médicos asignados a este período (tabla tiene).</p>
       <pre>${err.message}</pre>
       <a href="/periodo_vacaciones">Volver</a>
     `);
-  }
+    }
 });
 
 /* ========== TIENE (médico ↔ período_vacaciones) ========== */
 
 // Listado
 app.get('/tiene', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `
+    try {
+        const result = await pool.query(
+            `
       SELECT 
         t.id_periodo_vacaciones,
         t.matricula,
@@ -1820,9 +1873,9 @@ app.get('/tiene', async (_req: Request, res: Response) => {
       JOIN periodo_vacaciones pv ON pv.id_periodo_vacaciones = t.id_periodo_vacaciones
       ORDER BY pv.fecha_inicio, m.apellido, m.nombre;
       `
-    );
+        );
 
-    const filas = result.rows.map((r: any) => `
+        const filas = result.rows.map((r: any) => `
       <tr>
         <td>${r.id_periodo_vacaciones}</td>
         <td>${r.fecha_inicio} → ${r.fecha_fin}</td>
@@ -1839,7 +1892,7 @@ app.get('/tiene', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Asignación de períodos de vacaciones a médicos</h1>
       <a href="/tiene/nuevo">➕ Asignar vacaciones a médico</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -1852,33 +1905,33 @@ app.get('/tiene', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="4">Sin asignaciones.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // Form nuevo (asignar vacaciones a un médico)
 app.get('/tiene/nuevo', async (_req: Request, res: Response) => {
-  try {
-    const medicos = await pool.query(
-      'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
-    );
-    const periodos = await pool.query(
-      'SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin FROM periodo_vacaciones ORDER BY fecha_inicio'
-    );
+    try {
+        const medicos = await pool.query(
+            'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
+        );
+        const periodos = await pool.query(
+            'SELECT id_periodo_vacaciones, fecha_inicio, fecha_fin FROM periodo_vacaciones ORDER BY fecha_inicio'
+        );
 
-    const opcionesMedico = medicos.rows.map((m: any) =>
-      `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
-    ).join('');
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
+        ).join('');
 
-    const opcionesPeriodo = periodos.rows.map((p: any) =>
-      `<option value="${p.id_periodo_vacaciones}">
+        const opcionesPeriodo = periodos.rows.map((p: any) =>
+            `<option value="${p.id_periodo_vacaciones}">
         ${p.id_periodo_vacaciones} - ${p.fecha_inicio} → ${p.fecha_fin}
       </option>`
-    ).join('');
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Asignar período de vacaciones a médico</h1>
       <form method="POST" action="/tiene/nuevo">
         <label>Médico:</label><br>
@@ -1897,70 +1950,70 @@ app.get('/tiene/nuevo', async (_req: Request, res: Response) => {
       </form>
       <br><a href="/tiene">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // Alta en tiene
 app.post('/tiene/nuevo', async (req: Request, res: Response) => {
-  const { id_periodo_vacaciones, matricula } = req.body;
-  try {
-    await pool.query(
-      `
+    const { id_periodo_vacaciones, matricula } = req.body;
+    try {
+        await pool.query(
+            `
       INSERT INTO tiene (id_periodo_vacaciones, matricula)
       VALUES ($1, $2)
       `,
-      [Number(id_periodo_vacaciones), Number(matricula)]
-    );
-    res.redirect('/tiene');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [Number(id_periodo_vacaciones), Number(matricula)]
+        );
+        res.redirect('/tiene');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al asignar vacaciones</h1>
       <p>Puede ser que ya exista esa combinación (PK compuesta) o que no existan el médico o el período.</p>
       <pre>${err.message}</pre>
       <a href="/tiene/nuevo">Volver</a>
     `);
-  }
+    }
 });
 
 // Borrar una asignación (tiene)
 app.post('/tiene/borrar', async (req: Request, res: Response) => {
-  const id_periodo_vacaciones = Number(req.body.id_periodo_vacaciones);
-  const matricula = Number(req.body.matricula);
+    const id_periodo_vacaciones = Number(req.body.id_periodo_vacaciones);
+    const matricula = Number(req.body.matricula);
 
-  try {
-    await pool.query(
-      `
+    try {
+        await pool.query(
+            `
       DELETE FROM tiene
       WHERE id_periodo_vacaciones = $1
         AND matricula = $2
       `,
-      [id_periodo_vacaciones, matricula]
-    );
-    res.redirect('/tiene');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [id_periodo_vacaciones, matricula]
+        );
+        res.redirect('/tiene');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al quitar asignación</h1>
       <pre>${err.message}</pre>
       <a href="/tiene">Volver</a>
     `);
-  }
+    }
 });
 
 /* ========== RONDA ========== */
 
 // LISTADO DE RONDAS
 app.get('/ronda', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
-    );
+    try {
+        const result = await pool.query(
+            'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
+        );
 
-    const filas = result.rows.map((r: any) => `
+        const filas = result.rows.map((r: any) => `
       <tr>
         <td>${r.id_ronda}</td>
         <td>${r.dia}</td>
@@ -1975,7 +2028,7 @@ app.get('/ronda', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Rondas</h1>
       <a href="/ronda/nueva">➕ Nueva ronda</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -1985,15 +2038,15 @@ app.get('/ronda', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="4">Sin rondas.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // FORM NUEVA RONDA
 app.get('/ronda/nueva', (_req: Request, res: Response) => {
-  res.send(`
+    res.send(`
     <h1>Nueva ronda</h1>
     <form method="POST" action="/ronda/nueva">
 		<label>Día de la semana:</label><br>
@@ -2024,39 +2077,39 @@ app.get('/ronda/nueva', (_req: Request, res: Response) => {
 
 // ALTA RONDA
 app.post('/ronda/nueva', async (req: Request, res: Response) => {
-  const { dia, turno } = req.body;
-  try {
-    await pool.query(
-      `INSERT INTO ronda (dia, turno) VALUES ($1, $2)`,
-      [dia, turno]
-    );
-    res.redirect('/ronda');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const { dia, turno } = req.body;
+    try {
+        await pool.query(
+            `INSERT INTO ronda (dia, turno) VALUES ($1, $2)`,
+            [dia, turno]
+        );
+        res.redirect('/ronda');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al guardar ronda</h1>
       <pre>${err.message}</pre>
       <a href="/ronda/nueva">Volver</a>
     `);
-  }
+    }
 });
 
 // FORM EDITAR RONDA
 app.get('/ronda/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    const result = await pool.query(
-      'SELECT id_ronda, dia, turno FROM ronda WHERE id_ronda = $1',
-      [id]
-    );
+    const id = Number(req.params.id);
+    try {
+        const result = await pool.query(
+            'SELECT id_ronda, dia, turno FROM ronda WHERE id_ronda = $1',
+            [id]
+        );
 
-    if (result.rowCount === 0) {
-      return res.status(404).send('<h1>Ronda no encontrada</h1><a href="/ronda">Volver</a>');
-    }
+        if (result.rowCount === 0) {
+            return res.status(404).send('<h1>Ronda no encontrada</h1><a href="/ronda">Volver</a>');
+        }
 
-    const r = result.rows[0];
+        const r = result.rows[0];
 
-    res.send(`
+        res.send(`
       <h1>Editar ronda ${r.id_ronda}</h1>
       <form method="POST" action="/ronda/editar/${r.id_ronda}">
         ID: <input type="number" value="${r.id_ronda}" disabled><br><br>
@@ -2083,56 +2136,56 @@ app.get('/ronda/editar/:id', async (req: Request, res: Response) => {
       </form>
       <br><a href="/ronda">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // GUARDAR EDICIÓN RONDA
 app.post('/ronda/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const { dia, turno } = req.body;
-  try {
-    await pool.query(
-      `UPDATE ronda SET dia = $1, turno = $2 WHERE id_ronda = $3`,
-      [dia, turno, id]
-    );
-    res.redirect('/ronda');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    const { dia, turno } = req.body;
+    try {
+        await pool.query(
+            `UPDATE ronda SET dia = $1, turno = $2 WHERE id_ronda = $3`,
+            [dia, turno, id]
+        );
+        res.redirect('/ronda');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al actualizar ronda</h1>
       <pre>${err.message}</pre>
       <a href="/ronda">Volver</a>
     `);
-  }
+    }
 });
 
 // BORRAR RONDA
 app.post('/ronda/borrar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    await pool.query('DELETE FROM ronda WHERE id_ronda = $1', [id]);
-    res.redirect('/ronda');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    try {
+        await pool.query('DELETE FROM ronda WHERE id_ronda = $1', [id]);
+        res.redirect('/ronda');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al borrar ronda</h1>
       <p>Probablemente existan habitaciones asignadas a esta ronda (tabla incluye).</p>
       <pre>${err.message}</pre>
       <a href="/ronda">Volver</a>
     `);
-  }
+    }
 });
 
 /* ========== INCLUYE (habitaciones por ronda) ========== */
 
 // LISTADO
 app.get('/incluye', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `
+    try {
+        const result = await pool.query(
+            `
       SELECT 
         i.id_ronda,
         i.num_habitacion,
@@ -2145,9 +2198,9 @@ app.get('/incluye', async (_req: Request, res: Response) => {
       JOIN habitacion h ON h.num_habitacion = i.num_habitacion
       ORDER BY r.id_ronda, i.num_habitacion;
       `
-    );
+        );
 
-    const filas = result.rows.map((r: any) => `
+        const filas = result.rows.map((r: any) => `
       <tr>
         <td>${r.id_ronda}</td>
         <td>${r.dia} (${r.turno})</td>
@@ -2165,7 +2218,7 @@ app.get('/incluye', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Habitaciones por ronda</h1>
       <a href="/incluye/nuevo">➕ Agregar habitación a ronda</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -2179,35 +2232,35 @@ app.get('/incluye', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="5">Sin habitaciones asignadas a rondas.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // FORM NUEVO (agregar habitación a una ronda)
 app.get('/incluye/nuevo', async (_req: Request, res: Response) => {
-  try {
-    const rondas = await pool.query(
-      'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
-    );
-    const habitaciones = await pool.query(
-      'SELECT num_habitacion, piso, orientacion FROM habitacion ORDER BY num_habitacion'
-    );
+    try {
+        const rondas = await pool.query(
+            'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
+        );
+        const habitaciones = await pool.query(
+            'SELECT num_habitacion, piso, orientacion FROM habitacion ORDER BY num_habitacion'
+        );
 
-    const opcionesRonda = rondas.rows.map((r: any) =>
-      `<option value="${r.id_ronda}">
+        const opcionesRonda = rondas.rows.map((r: any) =>
+            `<option value="${r.id_ronda}">
         ${r.id_ronda} - ${r.dia} (${r.turno})
       </option>`
-    ).join('');
+        ).join('');
 
-    const opcionesHabitacion = habitaciones.rows.map((h: any) =>
-      `<option value="${h.num_habitacion}">
+        const opcionesHabitacion = habitaciones.rows.map((h: any) =>
+            `<option value="${h.num_habitacion}">
         ${h.num_habitacion} - Piso ${h.piso} - ${h.orientacion}
       </option>`
-    ).join('');
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Agregar habitación a una ronda</h1>
       <form method="POST" action="/incluye/nuevo">
         <label>Ronda:</label><br>
@@ -2226,64 +2279,64 @@ app.get('/incluye/nuevo', async (_req: Request, res: Response) => {
       </form>
       <br><a href="/incluye">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // ALTA EN INCLUYE
 app.post('/incluye/nuevo', async (req: Request, res: Response) => {
-  const { id_ronda, num_habitacion } = req.body;
-  try {
-    await pool.query(
-      `
+    const { id_ronda, num_habitacion } = req.body;
+    try {
+        await pool.query(
+            `
       INSERT INTO incluye (id_ronda, num_habitacion)
       VALUES ($1, $2)
       `,
-      [Number(id_ronda), Number(num_habitacion)]
-    );
-    res.redirect('/incluye');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [Number(id_ronda), Number(num_habitacion)]
+        );
+        res.redirect('/incluye');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al agregar habitación a la ronda</h1>
       <p>Puede ser que ya exista esa combinación (PK compuesta) o que no existan la ronda o la habitación.</p>
       <pre>${err.message}</pre>
       <a href="/incluye/nuevo">Volver</a>
     `);
-  }
+    }
 });
 
 // BORRAR UNA FILA DE INCLUYE
 app.post('/incluye/borrar', async (req: Request, res: Response) => {
-  const id_ronda = Number(req.body.id_ronda);
-  const num_habitacion = Number(req.body.num_habitacion);
-  try {
-    await pool.query(
-      `
+    const id_ronda = Number(req.body.id_ronda);
+    const num_habitacion = Number(req.body.num_habitacion);
+    try {
+        await pool.query(
+            `
       DELETE FROM incluye
       WHERE id_ronda = $1 AND num_habitacion = $2
       `,
-      [id_ronda, num_habitacion]
-    );
-    res.redirect('/incluye');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [id_ronda, num_habitacion]
+        );
+        res.redirect('/incluye');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al quitar habitación de ronda</h1>
       <pre>${err.message}</pre>
       <a href="/incluye">Volver</a>
     `);
-  }
+    }
 });
 /* ========== RECORRIDO ========== */
 
 // LISTADO
 app.get('/recorrido', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(
-      `
+    try {
+        const result = await pool.query(
+            `
       SELECT 
         r.id_recorrido,
         r.fecha,
@@ -2298,9 +2351,9 @@ app.get('/recorrido', async (_req: Request, res: Response) => {
       JOIN medico m   ON m.matricula = r.matricula
       ORDER BY r.fecha DESC, r.id_recorrido;
       `
-    );
+        );
 
-    const filas = result.rows.map((rec: any) => `
+        const filas = result.rows.map((rec: any) => `
       <tr>
         <td>${rec.id_recorrido}</td>
         <td>${rec.fecha}</td>
@@ -2316,7 +2369,7 @@ app.get('/recorrido', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Recorridos</h1>
       <a href="/recorrido/nuevo">➕ Nuevo recorrido</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -2330,31 +2383,31 @@ app.get('/recorrido', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="5">Sin recorridos.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // FORM NUEVO RECORRIDO
 app.get('/recorrido/nuevo', async (_req: Request, res: Response) => {
-  try {
-    const rondas = await pool.query(
-      'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
-    );
-    const medicos = await pool.query(
-      'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
-    );
+    try {
+        const rondas = await pool.query(
+            'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
+        );
+        const medicos = await pool.query(
+            'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
+        );
 
-    const opcionesRonda = rondas.rows.map((r: any) =>
-      `<option value="${r.id_ronda}">${r.id_ronda} - ${r.dia} (${r.turno})</option>`
-    ).join('');
+        const opcionesRonda = rondas.rows.map((r: any) =>
+            `<option value="${r.id_ronda}">${r.id_ronda} - ${r.dia} (${r.turno})</option>`
+        ).join('');
 
-    const opcionesMedico = medicos.rows.map((m: any) =>
-      `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
-    ).join('');
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}">${m.matricula} - ${m.apellido}, ${m.nombre}</option>`
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Nuevo recorrido</h1>
       <form method="POST" action="/recorrido/nuevo">
         <label>Fecha del recorrido:</label><br>
@@ -2376,77 +2429,77 @@ app.get('/recorrido/nuevo', async (_req: Request, res: Response) => {
       </form>
       <br><a href="/recorrido">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // ALTA RECORRIDO
 app.post('/recorrido/nuevo', async (req: Request, res: Response) => {
-  const { fecha, id_ronda, matricula } = req.body;
-  try {
-    await pool.query(
-      `
+    const { fecha, id_ronda, matricula } = req.body;
+    try {
+        await pool.query(
+            `
       INSERT INTO recorrido (fecha, id_ronda, matricula)
       VALUES ($1, $2, $3)
       `,
-      [fecha, Number(id_ronda), Number(matricula)]
-    );
-    res.redirect('/recorrido');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [fecha, Number(id_ronda), Number(matricula)]
+        );
+        res.redirect('/recorrido');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al guardar recorrido</h1>
       <pre>${err.message}</pre>
       <a href="/recorrido/nuevo">Volver</a>
     `);
-  }
+    }
 });
 
 // FORM EDITAR RECORRIDO
 app.get('/recorrido/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    const recResult = await pool.query(
-      `
+    const id = Number(req.params.id);
+    try {
+        const recResult = await pool.query(
+            `
       SELECT id_recorrido, fecha, id_ronda, matricula
       FROM recorrido
       WHERE id_recorrido = $1
       `,
-      [id]
-    );
+            [id]
+        );
 
-    if (recResult.rowCount === 0) {
-      return res.status(404).send('<h1>Recorrido no encontrado</h1><a href="/recorrido">Volver</a>');
-    }
+        if (recResult.rowCount === 0) {
+            return res.status(404).send('<h1>Recorrido no encontrado</h1><a href="/recorrido">Volver</a>');
+        }
 
-    const rec = recResult.rows[0];
+        const rec = recResult.rows[0];
 
-    const fechaStr = rec.fecha instanceof Date
-      ? rec.fecha.toISOString().slice(0, 10)
-      : rec.fecha;
+        const fechaStr = rec.fecha instanceof Date
+            ? rec.fecha.toISOString().slice(0, 10)
+            : rec.fecha;
 
-    const rondas = await pool.query(
-      'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
-    );
-    const medicos = await pool.query(
-      'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
-    );
+        const rondas = await pool.query(
+            'SELECT id_ronda, dia, turno FROM ronda ORDER BY id_ronda'
+        );
+        const medicos = await pool.query(
+            'SELECT matricula, apellido, nombre FROM medico ORDER BY apellido, nombre'
+        );
 
-    const opcionesRonda = rondas.rows.map((r: any) =>
-      `<option value="${r.id_ronda}" ${r.id_ronda === rec.id_ronda ? 'selected' : ''}>
+        const opcionesRonda = rondas.rows.map((r: any) =>
+            `<option value="${r.id_ronda}" ${r.id_ronda === rec.id_ronda ? 'selected' : ''}>
         ${r.id_ronda} - ${r.dia} (${r.turno})
       </option>`
-    ).join('');
+        ).join('');
 
-    const opcionesMedico = medicos.rows.map((m: any) =>
-      `<option value="${m.matricula}" ${m.matricula === rec.matricula ? 'selected' : ''}>
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}" ${m.matricula === rec.matricula ? 'selected' : ''}>
         ${m.matricula} - ${m.apellido}, ${m.nombre}
       </option>`
-    ).join('');
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Editar recorrido ${rec.id_recorrido}</h1>
       <form method="POST" action="/recorrido/editar/${rec.id_recorrido}">
         ID: <input type="number" value="${rec.id_recorrido}" disabled><br><br>
@@ -2468,66 +2521,66 @@ app.get('/recorrido/editar/:id', async (req: Request, res: Response) => {
       </form>
       <br><a href="/recorrido">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // GUARDAR EDICIÓN
 app.post('/recorrido/editar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  const { fecha, id_ronda, matricula } = req.body;
-  try {
-    await pool.query(
-      `
+    const id = Number(req.params.id);
+    const { fecha, id_ronda, matricula } = req.body;
+    try {
+        await pool.query(
+            `
       UPDATE recorrido
       SET fecha = $1,
           id_ronda = $2,
           matricula = $3
       WHERE id_recorrido = $4
       `,
-      [fecha, Number(id_ronda), Number(matricula), id]
-    );
-    res.redirect('/recorrido');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [fecha, Number(id_ronda), Number(matricula), id]
+        );
+        res.redirect('/recorrido');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al actualizar recorrido</h1>
       <pre>${err.message}</pre>
       <a href="/recorrido">Volver</a>
     `);
-  }
+    }
 });
 
 // BORRAR
 app.post('/recorrido/borrar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    await pool.query(
-      'DELETE FROM comentario_recorrido WHERE id_recorrido = $1',
-      [id]
-    );
-    await pool.query(
-      'DELETE FROM recorrido WHERE id_recorrido = $1',
-      [id]
-    );
-    res.redirect('/recorrido');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    try {
+        await pool.query(
+            'DELETE FROM comentario_recorrido WHERE id_recorrido = $1',
+            [id]
+        );
+        await pool.query(
+            'DELETE FROM recorrido WHERE id_recorrido = $1',
+            [id]
+        );
+        res.redirect('/recorrido');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al borrar recorrido</h1>
       <pre>${err.message}</pre>
       <a href="/recorrido">Volver</a>
     `);
-  }
+    }
 });
 
 /* ========== COMENTARIO_RECORRIDO ========== */
 
 app.get('/comentario_recorrido', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(`
+    try {
+        const result = await pool.query(`
       SELECT 
         c.nro_comentario,
         c.texto,
@@ -2551,7 +2604,7 @@ app.get('/comentario_recorrido', async (_req: Request, res: Response) => {
       ORDER BY ron.dia DESC, c.nro_comentario;
     `);
 
-    const filas = result.rows.map((c: any) => `
+        const filas = result.rows.map((c: any) => `
       <tr>
         <td>${c.nro_comentario}</td>
         <td>${c.dia} (${c.turno})</td>
@@ -2568,7 +2621,7 @@ app.get('/comentario_recorrido', async (_req: Request, res: Response) => {
       </tr>
     `).join('');
 
-    res.send(`
+        res.send(`
       <h1>Comentarios de recorrido</h1>
       <a href="/comentario_recorrido/nuevo">➕ Nuevo comentario</a> | <a href="/">Inicio</a><br><br>
       <table border="1" cellpadding="5">
@@ -2583,16 +2636,16 @@ app.get('/comentario_recorrido', async (_req: Request, res: Response) => {
         ${filas || '<tr><td colspan="6">Sin comentarios.</td></tr>'}
       </table>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // nuevo comentario
 app.get('/comentario_recorrido/nuevo', async (_req: Request, res: Response) => {
-  try {
-    const recorridos = await pool.query(`
+    try {
+        const recorridos = await pool.query(`
       SELECT 
         r.id_recorrido,
         ron.dia,
@@ -2606,7 +2659,7 @@ app.get('/comentario_recorrido/nuevo', async (_req: Request, res: Response) => {
       ORDER BY ron.dia DESC, ron.turno, r.id_recorrido;
     `);
 
-    const internaciones = await pool.query(`
+        const internaciones = await pool.query(`
       SELECT 
         i.id_internacion,
         i.fecha_inicio,
@@ -2618,19 +2671,19 @@ app.get('/comentario_recorrido/nuevo', async (_req: Request, res: Response) => {
       ORDER BY i.id_internacion DESC;
     `);
 
-    const opcionesRecorrido = recorridos.rows.map((r: any) =>
-      `<option value="${r.id_recorrido}">
+        const opcionesRecorrido = recorridos.rows.map((r: any) =>
+            `<option value="${r.id_recorrido}">
         ${r.id_recorrido} - ${r.dia} (${r.turno}) - ${r.matricula} ${r.apellido}, ${r.nombre}
       </option>`
-    ).join('');
+        ).join('');
 
-    const opcionesInternacion = internaciones.rows.map((i: any) =>
-      `<option value="${i.id_internacion}">
+        const opcionesInternacion = internaciones.rows.map((i: any) =>
+            `<option value="${i.id_internacion}">
         ${i.id_internacion} - ${i.apellido}, ${i.nombre} (${i.fecha_inicio} → ${i.fecha_fin ?? ''})
       </option>`
-    ).join('');
+        ).join('');
 
-    res.send(`
+        res.send(`
       <h1>Nuevo comentario de recorrido</h1>
       <form method="POST" action="/comentario_recorrido/nuevo">
         <label>Recorrido:</label><br>
@@ -2652,50 +2705,50 @@ app.get('/comentario_recorrido/nuevo', async (_req: Request, res: Response) => {
       </form>
       <br><a href="/comentario_recorrido">Volver</a>
     `);
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send(`<pre>${err.message}</pre>`);
-  }
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
 });
 
 // ALTA
 app.post('/comentario_recorrido/nuevo', async (req: Request, res: Response) => {
-  const { texto, id_recorrido, id_internacion } = req.body;
-  try {
-    await pool.query(
-      `
+    const { texto, id_recorrido, id_internacion } = req.body;
+    try {
+        await pool.query(
+            `
       INSERT INTO comentario_recorrido (texto, id_recorrido, id_internacion)
       VALUES ($1, $2, $3)
       `,
-      [texto, Number(id_recorrido), Number(id_internacion)]
-    );
-    res.redirect('/comentario_recorrido');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+            [texto, Number(id_recorrido), Number(id_internacion)]
+        );
+        res.redirect('/comentario_recorrido');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al guardar comentario</h1>
       <pre>${err.message}</pre>
       <a href="/comentario_recorrido/nuevo">Volver</a>
     `);
-  }
+    }
 });
 
 app.post('/comentario_recorrido/borrar/:id', async (req: Request, res: Response) => {
-  const id = Number(req.params.id);
-  try {
-    await pool.query(
-      'DELETE FROM comentario_recorrido WHERE nro_comentario = $1',
-      [id]
-    );
-    res.redirect('/comentario_recorrido');
-  } catch (err: any) {
-    console.error(err);
-    res.status(400).send(`
+    const id = Number(req.params.id);
+    try {
+        await pool.query(
+            'DELETE FROM comentario_recorrido WHERE nro_comentario = $1',
+            [id]
+        );
+        res.redirect('/comentario_recorrido');
+    } catch (err: any) {
+        console.error(err);
+        res.status(400).send(`
       <h1>Error al borrar comentario</h1>
       <pre>${err.message}</pre>
       <a href="/comentario_recorrido">Volver</a>
     `);
-  }
+    }
 });
 
 
@@ -2705,7 +2758,7 @@ app.get('/reportes/camas-disponibles', async (_req: Request, res: Response) => {
     try {
         // 1. Obtener el resumen (Conteo)
         const resumenResult = await pool.query('SELECT * FROM sp_cantidad_camas_libres_por_sector()');
-        
+
         // 2. Obtener el detalle completo
         const detalleResult = await pool.query('SELECT * FROM sp_detalle_camas_disponibles()');
 
@@ -2760,7 +2813,7 @@ app.get('/internacion/seguimiento/:id', async (req: Request, res: Response) => {
             FROM internacion i 
             JOIN paciente p ON i.dni = p.dni 
             WHERE i.id_internacion = $1`, [id]);
-            
+
         if (encabezado.rowCount === 0) return res.send('Internación no encontrada');
         const pac = encabezado.rows[0];
 
@@ -2865,6 +2918,505 @@ app.get('/reportes/auditoria', async (_req: Request, res: Response) => {
     } catch (err: any) {
         res.status(500).send(`<h1>Error</h1><pre>${err.message}</pre><a href="/">Volver</a>`);
     }
+});
+
+// Internar médico como paciente
+app.get('/internar_medico', async (_req: Request, res: Response) => {
+    try {
+        // Solo médicos que NO estén actualmente internados
+        const medicos = await pool.query(`
+      SELECT m.matricula, m.dni, m.apellido, m.nombre
+      FROM medico m
+      WHERE NOT EXISTS (
+        SELECT 1 FROM internacion i 
+        WHERE i.dni = m.dni AND i.fecha_fin IS NULL
+      )
+      ORDER BY m.apellido, m.nombre
+    `);
+
+        // Médicos disponibles para ser médico tratante
+        const medicosTratantes = await pool.query(`
+      SELECT matricula, apellido, nombre
+      FROM medico
+      ORDER BY apellido, nombre
+    `);
+
+        // Sectores con camas libres
+        const sectores = await pool.query(`
+      SELECT DISTINCT s.id_sector, s.tipo, COUNT(c.num_cama) as camas_libres
+      FROM sector s
+      JOIN habitacion h ON h.id_sector = s.id_sector
+      JOIN cama c ON c.num_habitacion = h.num_habitacion
+      WHERE c.estado = 'LIBRE'
+      GROUP BY s.id_sector, s.tipo
+      ORDER BY s.tipo
+    `);
+
+        const opcionesMedico = medicos.rows.map((m: any) =>
+            `<option value="${m.matricula}">
+        ${m.matricula} - ${m.apellido}, ${m.nombre} (DNI: ${m.dni})
+      </option>`
+        ).join('');
+
+        const opcionesTratante = medicosTratantes.rows.map((m: any) =>
+            `<option value="${m.matricula}">
+        ${m.matricula} - ${m.apellido}, ${m.nombre}
+      </option>`
+        ).join('');
+
+        const opcionesSector = sectores.rows.map((s: any) =>
+            `<option value="${s.id_sector}">
+        ${s.tipo} (${s.camas_libres} camas libres)
+      </option>`
+        ).join('');
+
+        res.send(`
+      <h1>🏥 Internar Médico como Paciente</h1>
+      <p><strong>Operación con TRANSACCIÓN</strong> - Demuestra atomicidad en operaciones múltiples</p>
+      <hr>
+      
+      <form method="POST" action="/internar_medico">
+        <label><strong>Médico a internar:</strong></label><br>
+        <select name="matricula_paciente" required>
+          <option value="">-- Seleccionar médico --</option>
+          ${opcionesMedico || '<option disabled>No hay médicos disponibles</option>'}
+        </select><br><br>
+
+        <label><strong>Médico tratante (quien lo atenderá):</strong></label><br>
+        <select name="matricula_tratante" required>
+          <option value="">-- Seleccionar médico tratante --</option>
+          ${opcionesTratante}
+        </select><br><br>
+
+        <label><strong>Sector de internación:</strong></label><br>
+        <select name="id_sector" required>
+          <option value="">-- Seleccionar sector --</option>
+          ${opcionesSector || '<option disabled>No hay sectores con camas libres</option>'}
+        </select><br><br>
+
+        <label><strong>Fecha de nacimiento</strong> (si no existe como paciente):</label><br>
+        <input type="date" name="fecha_nac" value="1980-01-01"><br><br>
+
+        <label><strong>Sexo</strong> (si no existe como paciente):</label><br>
+        <select name="sexo">
+          <option value="MASCULINO">MASCULINO</option>
+          <option value="FEMENINO">FEMENINO</option>
+        </select><br><br>
+
+        <button type="submit" style="padding: 10px 20px; font-size: 16px;">
+          💾 Ejecutar Internación (con Transacción)
+        </button>
+      </form>
+      
+      <br>
+      <hr>
+      <h3>¿Qué hace esta operación?</h3>
+      <ol>
+        <li>Verifica que el médico existe</li>
+        <li>Verifica que no sea su propio médico tratante</li>
+        <li>Crea registro de PACIENTE si no existe (rol dual)</li>
+        <li>Crea la INTERNACIÓN</li>
+        <li>Busca una CAMA libre en el sector</li>
+        <li>Asigna la cama (tabla CORRESPONDE)</li>
+      </ol>
+      <p><strong>Si cualquier paso falla → ROLLBACK (se deshace todo)</strong></p>
+      
+      <br><a href="/">← Volver al inicio</a>
+    `);
+    } catch (err: any) {
+        console.error(err);
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+// EJECUTAR TRANSACCIÓN: Internar médico como paciente
+app.post('/internar_medico', async (req: Request, res: Response) => {
+    const { matricula_paciente, matricula_tratante, id_sector, fecha_nac, sexo } = req.body;
+
+    const client = await pool.connect();
+
+    let resumen = {
+        medico: '',
+        dni: 0,
+        pacienteCreado: false,
+        id_internacion: 0,
+        cama: '',
+        habitacion: 0,
+        sector: ''
+    };
+
+    try {
+        await client.query('BEGIN');
+
+        // Verificar que el médico a internar existe
+        const medicoResult = await client.query(
+            `SELECT dni, nombre, apellido FROM medico WHERE matricula = $1`,
+            [Number(matricula_paciente)]
+        );
+
+        if (medicoResult.rowCount === 0) {
+            throw new Error(`No existe médico con matrícula ${matricula_paciente}`);
+        }
+
+        const medico = medicoResult.rows[0];
+        resumen.medico = `${medico.apellido}, ${medico.nombre}`;
+        resumen.dni = medico.dni;
+
+        // Verificar que no se auto-interne
+        if (Number(matricula_paciente) === Number(matricula_tratante)) {
+            throw new Error('Un médico no puede ser su propio médico tratante');
+        }
+        console.log('[2/6] Validación: médico tratante diferente ✓');
+
+        // Verificar/crear registro de paciente
+        const pacienteExiste = await client.query(
+            `SELECT dni FROM paciente WHERE dni = $1`,
+            [medico.dni]
+        );
+
+        if (pacienteExiste.rowCount === 0) {
+            await client.query(
+                `INSERT INTO paciente (dni, nombre, apellido, fecha_nac, sexo)
+         VALUES ($1, $2, $3, $4, $5)`,
+                [medico.dni, medico.nombre, medico.apellido, fecha_nac, sexo]
+            );
+            resumen.pacienteCreado = true;
+        } else {
+        }
+
+        // Verificar que no tenga internación activa
+        const internacionActiva = await client.query(
+            `SELECT id_internacion FROM internacion 
+       WHERE dni = $1 AND fecha_fin IS NULL`,
+            [medico.dni]
+        );
+
+        if (internacionActiva.rowCount! > 0) {
+            throw new Error(`El paciente DNI ${medico.dni} ya tiene una internación activa`);
+        }
+
+        // Buscar cama libre en el sector
+        const camaResult = await client.query(
+            `SELECT c.num_cama, c.num_habitacion, h.piso, s.tipo as sector
+       FROM cama c
+       JOIN habitacion h ON h.num_habitacion = c.num_habitacion
+       JOIN sector s ON s.id_sector = h.id_sector
+       WHERE h.id_sector = $1 
+         AND c.estado = 'LIBRE'
+       ORDER BY h.piso, c.num_habitacion, c.num_cama
+       LIMIT 1
+       FOR UPDATE`,
+            [Number(id_sector)]
+        );
+
+        if (camaResult.rowCount === 0) {
+            throw new Error(`No hay camas disponibles en el sector seleccionado`);
+        }
+
+        const cama = camaResult.rows[0];
+        resumen.cama = `Cama ${cama.num_cama}`;
+        resumen.habitacion = cama.num_habitacion;
+        resumen.sector = cama.sector;
+
+        // Crear internación
+        const fechaHoy = new Date().toISOString().slice(0, 10);
+        const horaActual = new Date().toISOString();
+
+        const internacionResult = await client.query(
+            `INSERT INTO internacion (fecha_inicio, fecha_fin, matricula, dni)
+       VALUES ($1, NULL, $2, $3)
+       RETURNING id_internacion`,
+            [fechaHoy, Number(matricula_tratante), medico.dni]
+        );
+
+        resumen.id_internacion = internacionResult.rows[0].id_internacion;
+
+        // Asignar cama
+        await client.query(
+            `INSERT INTO corresponde (id_internacion, num_cama, num_habitacion, fecha, hora)
+       VALUES ($1, $2, $3, $4, $5)`,
+            [resumen.id_internacion, cama.num_cama, cama.num_habitacion, fechaHoy, horaActual]
+        );
+
+        await client.query('COMMIT');
+        console.log('>>> TRANSACCIÓN COMPLETADA (COMMIT)');
+
+        res.send(`
+      <h1>✅ Internación Exitosa</h1>
+      <h2>Transacción completada (COMMIT)</h2>
+      
+      <table border="1" cellpadding="10">
+        <tr><th>Campo</th><th>Valor</th></tr>
+        <tr><td>Médico internado</td><td>${resumen.medico}</td></tr>
+        <tr><td>DNI</td><td>${resumen.dni}</td></tr>
+        <tr><td>Paciente creado</td><td>${resumen.pacienteCreado ? 'SÍ (nuevo registro)' : 'NO (ya existía)'}</td></tr>
+        <tr><td>ID Internación</td><td>${resumen.id_internacion}</td></tr>
+        <tr><td>Ubicación</td><td>Habitación ${resumen.habitacion}, ${resumen.cama}</td></tr>
+        <tr><td>Sector</td><td>${resumen.sector}</td></tr>
+        <tr><td>Fecha</td><td>${fechaHoy}</td></tr>
+      </table>
+      
+      <br>
+      <p><strong>Todas las operaciones se ejecutaron correctamente:</strong></p>
+      <ol>
+        <li>✓ Médico verificado</li>
+        <li>✓ Validación de médico tratante</li>
+        <li>✓ Registro de paciente ${resumen.pacienteCreado ? 'creado' : 'existente'}</li>
+        <li>✓ Internación creada</li>
+        <li>✓ Cama asignada</li>
+      </ol>
+      
+      <br>
+      <a href="/internar_medico">← Nueva internación</a> | 
+      <a href="/internacion">Ver internaciones</a> |
+      <a href="/">Inicio</a>
+    `);
+
+    } catch (err: any) {
+        await client.query('ROLLBACK');
+        console.log('TRANSACCIÓN REVERTIDA (ROLLBACK)');
+        console.error('Error:', err.message);
+
+        res.status(400).send(`
+      <h1>❌ Error en la Transacción</h1>
+      <h2>ROLLBACK ejecutado - Ningún cambio fue guardado</h2>
+      
+      <div style="background: #ffeeee; padding: 15px; border: 1px solid #ff0000;">
+        <strong>Error:</strong> ${err.message}
+      </div>
+      
+      <br>
+      
+      <a href="/internar_medico">← Volver a intentar</a> | 
+      <a href="/">Inicio</a>
+    `);
+
+    } finally {
+        client.release();
+    }
+});
+
+// =================================================================
+//   ASIGNACIÓN DE CAMAS
+// =================================================================
+
+// 1. LISTADO DE ASIGNACIONES
+app.get('/corresponde', async (_req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                c.id_internacion,
+                c.num_cama,
+                c.num_habitacion,
+                c.fecha,
+                c.hora,
+                p.apellido,
+                p.nombre,
+                s.tipo as sector
+            FROM corresponde c
+            JOIN internacion i ON i.id_internacion = c.id_internacion
+            JOIN paciente p ON p.dni = i.dni
+            JOIN habitacion h ON h.num_habitacion = c.num_habitacion
+            JOIN sector s ON s.id_sector = h.id_sector
+            ORDER BY c.fecha DESC, c.hora DESC
+        `);
+
+        const filas = result.rows.map((r: any) => `
+            <tr>
+                <td>${new Date(r.fecha).toLocaleDateString()} ${r.hora}</td>
+                <td>${r.apellido}, ${r.nombre} (Int #${r.id_internacion})</td>
+                <td>${r.sector} - Hab ${r.num_habitacion} - Cama ${r.num_cama}</td>
+            </tr>
+        `).join('');
+
+        res.send(`
+            <h1>Movimientos de Camas</h1>
+            <a href="/corresponde/nueva">➕ Asignar Cama</a> | <a href="/">Inicio</a>
+            <table border="1" cellpadding="5" style="margin-top:20px; border-collapse: collapse; width: 100%;">
+                <tr style="background:#eee;"><th>Fecha/Hora</th><th>Paciente</th><th>Ubicación</th></tr>
+                ${filas || '<tr><td colspan="3">Sin movimientos registrados.</td></tr>'}
+            </table>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+// FORMULARIO
+app.get('/corresponde/nueva', async (_req, res) => {
+    try {
+        const internaciones = await pool.query(`
+            SELECT i.id_internacion, p.apellido, p.nombre 
+            FROM internacion i 
+            JOIN paciente p ON p.dni = i.dni 
+            WHERE i.fecha_fin IS NULL 
+            ORDER BY p.apellido
+        `);
+
+        const camas = await pool.query('SELECT * FROM sp_detalle_camas_disponibles()');
+
+        const optInt = internaciones.rows.map((i: any) =>
+            `<option value="${i.id_internacion}">#${i.id_internacion} - ${i.apellido}, ${i.nombre}</option>`
+        ).join('');
+
+        const optCamas = camas.rows.map((c: any) =>
+            `<option value="${c.num_cama},${c.num_habitacion}">
+                ${c.nombre_sector} - Hab ${c.num_habitacion} - Cama ${c.num_cama} (${c.orientacion})
+             </option>`
+        ).join('');
+
+        res.send(`
+            <h1>Asignar Paciente a Cama</h1>
+            <form method="POST" action="/corresponde/nueva">
+                <label>Internación Activa:</label><br>
+                <select name="id_internacion" required>
+                    <option value="">-- Seleccionar --</option>
+                    ${optInt}
+                </select><br><br>
+
+                <label>Cama Disponible:</label><br>
+                <select name="datos_cama" required>
+                    <option value="">-- Seleccionar --</option>
+                    ${optCamas}
+                </select><br><br>
+
+                <button type="submit">Guardar Movimiento</button>
+            </form>
+            <br><a href="/corresponde">Volver</a>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+//ASIGNACIÓN
+app.post('/corresponde/nueva', async (req, res) => {
+    const { id_internacion, datos_cama } = req.body;
+    const [num_cama, num_habitacion] = datos_cama.split(',');
+
+    try {
+        const momentoActual = new Date();
+        const fechaSolo = momentoActual.toISOString().slice(0, 10);
+        const horaCompleta = momentoActual;
+
+        await pool.query(
+            `INSERT INTO corresponde (id_internacion, num_cama, num_habitacion, fecha, hora)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [Number(id_internacion), Number(num_cama), Number(num_habitacion), fechaSolo, horaCompleta]
+        );
+
+        res.redirect('/corresponde');
+
+    } catch (err: any) {
+        res.status(400).send(`
+            <h1>Error al asignar cama</h1>
+            <p style="color:red; font-weight:bold;">${err.message}</p>
+            <p>Es probable que la cama haya sido ocupada por otro usuario o la validación de fechas falló.</p>
+            <a href="/corresponde/nueva">Intentar de nuevo</a>
+        `);
+    }
+});
+
+// Pacientes Internados Actualmente
+app.get('/reportes/internados', async (_req, res) => {
+    try {
+
+        const result = await pool.query('SELECT * FROM sp_pacientes_internados_actualmente()');
+
+        const filas = result.rows.map((p: any) => `
+            <tr>
+                <td>${p.apellido_paciente}, ${p.nombre_paciente} (DNI ${p.dni_paciente})</td>
+                <td>${new Date(p.fecha_inicio_internacion).toLocaleDateString()}</td>
+                <td>Dr/a. ${p.apellido_medico}</td>
+                <td><a href="/internacion/seguimiento/${p.id_internacion}">Ver Evolución</a></td>
+            </tr>
+        `).join('');
+
+        res.send(`
+            <h1>Pacientes Actualmente Internados</h1>
+            <a href="/">Volver</a>
+            <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse; margin-top:15px;">
+                <tr>
+                    <th>Paciente</th>
+                    <th>Fecha Ingreso</th>
+                    <th>Médico Cabecera</th>
+                    <th>Acciones</th>
+                </tr>
+                ${filas || '<tr><td colspan="4">No hay pacientes internados.</td></tr>'}
+            </table>
+        `);
+    } catch (err: any) {
+        res.status(500).send(`<pre>${err.message}</pre>`);
+    }
+});
+
+// Actividad de Médicos (Liquidación)
+app.get('/reportes/liquidacion', async (req, res) => {
+    const { matricula, mes, anio } = req.query;
+
+    const mesActual = mes ? Number(mes) : new Date().getMonth() + 1;
+    const anioActual = anio ? Number(anio) : new Date().getFullYear();
+
+    let contenido = '<p>Seleccione un médico para ver su liquidación.</p>';
+
+    if (matricula) {
+        try {
+            const result = await pool.query(
+                'SELECT * FROM sp_reporte_actividad_medico($1, $2, $3)',
+                [matricula, mesActual, anioActual]
+            );
+
+            if(result.rows.length > 0) {
+                const r = result.rows[0];
+                contenido = `
+                    <div style="border:1px solid #333; padding:20px; background:#fff; max-width:600px;">
+                        <h3>Reporte de Actividad Mensual</h3>
+                        <p><strong>Médico:</strong> ${r.medico}</p>
+                        <p><strong>CUIT:</strong> ${r.cuit}</p>
+                        <p><strong>Antigüedad:</strong> ${r.antiguedad_años} años</p>
+                        <hr>
+                        <p>Período: ${mesActual}/${anioActual}</p>
+                        <ul>
+                            <li><strong>Guardias realizadas:</strong> ${r.cant_guardias}</li>
+                            <li><strong>Recorridos efectuados:</strong> ${r.cant_recorridos}</li>
+                        </ul>
+                        <p><small>${r.detalle}</small></p>
+                    </div>
+                `;
+            } else {
+                contenido = '<p>No se encontraron datos para ese médico en este período.</p>';
+            }
+        } catch (err: any) {
+            contenido = `<p style="color:red">Error: ${err.message}</p>`;
+        }
+    }
+
+    const medicos = await pool.query('SELECT matricula, apellido, nombre FROM medico ORDER BY apellido');
+    const options = medicos.rows.map((m: any) =>
+        `<option value="${m.matricula}" ${m.matricula == matricula ? 'selected':''}>${m.apellido}, ${m.nombre}</option>`
+    ).join('');
+
+    res.send(`
+        <h1>Liquidación de Honorarios Médicos</h1>
+        <form method="GET" action="/reportes/liquidacion" style="background:#f9f9f9; padding:15px;">
+            <label>Médico:</label>
+            <select name="matricula" required>
+                <option value="">-- Seleccionar --</option>
+                ${options}
+            </select>
+            
+            <label>Mes:</label>
+            <input type="number" name="mes" value="${mesActual}" min="1" max="12" style="width:50px;">
+            
+            <label>Año:</label>
+            <input type="number" name="anio" value="${anioActual}" style="width:70px;">
+            
+            <button type="submit">Generar Reporte</button>
+        </form>
+        <br>
+        ${contenido}
+        <br><a href="/">Volver al Inicio</a>
+    `);
 });
 
 app.listen(PORT, () => {
